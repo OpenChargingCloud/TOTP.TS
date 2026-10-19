@@ -67,6 +67,7 @@ interface GenerationVector {
         current:               string;
         next:                  string;
         remainingTimeSeconds:  number;
+        endTimeUnixSeconds:    number;
     };
     requires?: string[];
 }
@@ -166,6 +167,12 @@ describe("Generation vectors", () => {
             };
             expect(positional(vector.input)).toEqual(expected);
             expect(viaOptions(vector.input)).toEqual(expected);
+
+            // The window ends at a fixed instant, (S + 1) * V (spec section
+            // 4.1). This library reports whole seconds from the floored
+            // timestamp, so floor + remaining must land exactly on it.
+            expect(Math.floor(vector.input.unixTimestampMillis / 1000) + expected.remainingTime)
+                .toBe(vector.expected.endTimeUnixSeconds);
         });
 
     }
