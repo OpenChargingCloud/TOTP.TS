@@ -32,14 +32,20 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { generateTOTPs, type TOTPHashAlgorithm, type TOTPResult } from "../src/index.js";
+import { formatTOTPAuthorization,
+         generateTOTPs,
+         parseTOTPAuthorization,
+         type TOTPCredentials,
+         type TOTPHashAlgorithm,
+         type TOTPResult } from "../src/index.js";
 
 
 const IMPLEMENTATION_NAME = "totp.ts";
 
 /** The optional capabilities this implementation provides ("requires" lists). */
 const CAPABILITIES: ReadonlySet<string> = new Set([
-    "tlsChannelBinding"
+    "tlsChannelBinding",
+    "httpAuthentication"
 ]);
 
 /** Every capability name that exists in the vector format at all: a vector
@@ -83,25 +89,46 @@ interface InvalidInputVector {
 }
 
 
+interface HttpAuthRoundTripVector {
+    id:        string;
+    input:     TOTPCredentials;
+    expected:  { header: string };
+}
+
+interface HttpAuthParseVector {
+    id:        string;
+    header:    string;
+    expected:  TOTPCredentials;
+}
+
+interface HttpAuthInvalidHeader {
+    id:        string;
+    header:    string;
+}
+
 interface VectorFile<T> {
     requires?:  string[];
     vectors:    T[];
 }
 
-function load<T>(fileName: string): VectorFile<T> {
-    return JSON.parse(
-        readFileSync(new URL(`./vectors/${fileName}`, import.meta.url), "utf-8")
-    ) as VectorFile<T>;
+interface HttpAuthVectorFile extends VectorFile<HttpAuthRoundTripVector> {
+    parseVectors:    HttpAuthParseVector[];
+    invalidHeaders:  HttpAuthInvalidHeader[];
 }
 
-const generationVectors    = load<GenerationVector>  ("totp-test-vectors.json").vectors;
-const invalidInputVectors  = load<InvalidInputVector>("totp-invalid-inputs.json").vectors;
+function load(fileName: string): unknown {
+    return JSON.parse(
+        readFileSync(new URL(`./vectors/${fileName}`, import.meta.url), "utf-8")
+    );
+}
+
+const generationVectors    = (load("totp-test-vectors.json")      as VectorFile<GenerationVector>).vectors;
+const invalidInputVectors  = (load("totp-invalid-inputs.json")    as VectorFile<InvalidInputVector>).vectors;
 
 // The HTTP authentication vectors (totp-http-authentication.md of the
-// specification) are capability-gated as a whole file: this library
-// implements no HTTP binding, so only the gate is checked and the file is
-// skipped DECLARATIVELY below.
-const httpAuthFileRequires = load<unknown>          ("totp-http-auth-vectors.json").requires ?? [];
+// specification) are capability-gated as a whole file, not per vector.
+const httpAuthFile         =  load("totp-http-auth-vectors.json") as HttpAuthVectorFile;
+const httpAuthFileRequires = httpAuthFile.requires ?? [];
 
 
 function bytesOfHex(hex: string | undefined): Uint8Array | null {
@@ -149,11 +176,6 @@ describe("Vector files", () => {
         expect(unknown).toEqual([]);
     });
 
-    const missingHttp = httpAuthFileRequires.filter(capability => !CAPABILITIES.has(capability));
-
-    if (missingHttp.length > 0)
-        it.skip(`totp-http-auth-vectors.json (requires: ${missingHttp.join(", ")})`, () => {});
-
 });
 
 
@@ -186,6 +208,34 @@ describe("Generation vectors", () => {
         });
 
     }
+
+});
+
+
+describe.skipIf(httpAuthFileRequires.some(capability => !CAPABILITIES.has(capability)))("HTTP authentication vectors", () => {
+
+    it("are loaded", () => {
+        expect(httpAuthFile.vectors.length).       toBeGreaterThanOrEqual(5);
+        expect(httpAuthFile.parseVectors.length).  toBeGreaterThanOrEqual(9);
+        expect(httpAuthFile.invalidHeaders.length).toBeGreaterThanOrEqual(17);
+    });
+
+    // Round trip: the canonical header out, and the same credentials back in.
+    for (const vector of httpAuthFile.vectors)
+        it(`round-trip: ${vector.id}`, () => {
+            expect(formatTOTPAuthorization(vector.input)).toBe(vector.expected.header);
+            expect(parseTOTPAuthorization(vector.expected.header)).toEqual(vector.input);
+        });
+
+    for (const vector of httpAuthFile.parseVectors)
+        it(`parse: ${vector.id}`, () => {
+            expect(parseTOTPAuthorization(vector.header)).toEqual(vector.expected);
+        });
+
+    for (const vector of httpAuthFile.invalidHeaders)
+        it(`reject: ${vector.id}`, () => {
+            expect(() => parseTOTPAuthorization(vector.header)).toThrow();
+        });
 
 });
 

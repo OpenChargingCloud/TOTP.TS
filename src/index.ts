@@ -18,6 +18,8 @@
 import { hmac }                   from "@noble/hashes/hmac.js";
 import { sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
 
+export { formatTOTPAuthorization, parseTOTPAuthorization, type TOTPCredentials } from "./httpAuthentication.js";
+
 // The hash functions by the name the API takes. @noble/hashes rather than
 // Node's crypto: this library has to run wherever a one-time password is
 // needed - Node, a browser, a bundler's output, a service worker - and

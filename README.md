@@ -124,6 +124,66 @@ token, never verify it as raw. It accepts anything with Node's
 imports nothing from `node:tls`. Browsers expose no TLS exporter to scripts:
 there, the material — and with it channel binding — is out of reach.
 
+### HTTP authentication: `Authorization: TOTP`
+
+The native replacement for HTTP Basic Authentication, section 5 of the
+[HTTP authentication specification](https://github.com/OpenChargingTechnology/Whitepapers/blob/master/TimeBasedOneTimePasswords/totp-http-authentication.md)
+(a draft): login and token as RFC 9110 auth-params, each the Base64 of its
+UTF-8 text — so a `:` in the login, Basic's classic ambiguity, is harmless —
+and `tlscb` saying whether the token is channel-bound. `tlscb` **defaults to
+true**: a deployment sending raw tokens says `tlscb=false` explicitly.
+
+```js
+import { formatTOTPAuthorization, parseTOTPAuthorization } from "@open-charging-cloud/totp";
+
+formatTOTPAuthorization({ login: "chargingstation-0001", totp: "CN63y502maVh", tlscb: false });
+// 'TOTP login="Y2hhcmdpbmdzdGF0aW9uLTAwMDE=", totp="Q042M3k1MDJtYVZo", tlscb=false'
+
+parseTOTPAuthorization('TOTP login="Y2hhcmdpbmdzdGF0aW9uLTAwMDE=", totp="Z0F6eFBmWXRtUmdk"');
+// { login: "chargingstation-0001", totp: "gAzxPfYtmRgd", tlscb: true }
+```
+
+`parseTOTPAuthorization()` is as lenient as the specification requires —
+case-insensitive scheme, names and `tlscb` value, any parameter order,
+unknown parameters ignored, token or quoted-string values, unpadded Base64 —
+and throws on everything it calls malformed: another scheme, a missing or
+empty login or token, invalid Base64 or UTF-8, duplicate parameters, a
+`tlscb` that is neither `true` nor `false`.
+
+Verification stays with the server, which knows the login's configuration:
+
+```js
+import { timingSafeEqual } from "node:crypto";
+
+// Throws on malformed credentials, and below TLS v1.3 for a bound token:
+// answer both like a failed verification.
+function verify(req, configs) {
+
+  const { login, totp, tlscb } = parseTOTPAuthorization(req.headers.authorization ?? "");
+  const config = configs.get(login);       // { sharedSecret, validityTime, totpLength, ... }
+
+  if (config === undefined)
+    return false;                          // exactly like a wrong token
+
+  const totps = generateTOTPs({
+    ...config,
+    tlsExporterMaterial: tlscb ? tlsExporterMaterialOf(req.socket) : null
+  });
+
+  const presented = Buffer.from(totp);
+
+  return [totps.previous, totps.current, totps.next].some(candidate =>
+    Buffer.byteLength(candidate) === presented.length &&
+    timingSafeEqual(Buffer.from(candidate), presented));
+
+}
+```
+
+Answer failures with `401` and `WWW-Authenticate: TOTP`, never telling an
+unknown login from a wrong token. TOTP over Basic Authentication (section 4)
+needs nothing from this library beyond `generateTOTPs()`, and the `TOTP`
+request header (section 6) is a bare token, so neither has a function here.
+
 ## Security notes
 
 The token format is shared with the C# `TOTPGenerator` in

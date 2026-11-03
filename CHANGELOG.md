@@ -27,6 +27,13 @@ entry below ever will.
   TLS v1.3. The three `tlsChannelBinding` conformance vectors run now
   instead of being skipped, byte-identical with the C# `TOTPGenerator`.
   Unbound tokens are unchanged.
+- **`Authorization: TOTP`** (HTTP authentication specification, section 5,
+  a draft): `formatTOTPAuthorization({ login, totp, tlscb })` builds the
+  canonical header value, `parseTOTPAuthorization(header)` parses one back
+  and throws on malformed credentials. `tlscb` defaults to `true`. All 31
+  `httpAuthentication` conformance vectors run now - round trips, lenient
+  parsing, and the headers parsers must reject - so the suite skips nothing
+  any more.
 
 
 ## [0.3.1] - 2026-09-05

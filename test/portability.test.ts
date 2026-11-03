@@ -25,7 +25,7 @@
 // runtime unless the consumer polyfills it. Both used to be true here, and
 // both cost every browser consumer a workaround of its own.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -65,19 +65,29 @@ describe("Portability", () => {
 
   it("ships a build that imports nothing only Node has", () => {
 
-    // The comments explain why none of this is used, so they would match
-    // every pattern below - it is the code that has to be clean.
-    const bundle = readFileSync(join(projectRoot, "dist/index.js"), "utf8").
+    // Every module of the build, not just the entry point: index.js
+    // re-exports the others, so each one ends up in a consumer's bundle.
+    const modules = readdirSync(join(projectRoot, "dist")).filter(file => file.endsWith(".js"));
+
+    expect(modules).toContain("index.js");
+
+    for (const module of modules) {
+
+      // The comments explain why none of this is used, so they would match
+      // every pattern below - it is the code that has to be clean.
+      const code = readFileSync(join(projectRoot, "dist", module), "utf8").
                        replace(/\/\*[\s\S]*?\*\//g, "").
                        replace(/^\s*\/\/.*$/gm, "");
 
-    // A "node:" import is what webpack refuses with UnhandledSchemeError, and
-    // no resolve.alias or resolve.fallback ever gets to see it: the scheme is
-    // rejected before anything is resolved.
-    expect(bundle).not.toMatch(/["']node:/);
-    expect(bundle).not.toMatch(/\bBuffer\b/);
-    expect(bundle).not.toMatch(/\bprocess\./);
-    expect(bundle).not.toMatch(/\b__dirname\b/);
+      // A "node:" import is what webpack refuses with UnhandledSchemeError, and
+      // no resolve.alias or resolve.fallback ever gets to see it: the scheme is
+      // rejected before anything is resolved.
+      expect(code, module).not.toMatch(/["']node:/);
+      expect(code, module).not.toMatch(/\bBuffer\b/);
+      expect(code, module).not.toMatch(/\bprocess\./);
+      expect(code, module).not.toMatch(/\b__dirname\b/);
+
+    }
 
   });
 
