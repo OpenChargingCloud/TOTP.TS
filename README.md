@@ -69,7 +69,7 @@ const totps = generateTOTPs({
 
 ## API
 
-### `generateTOTPs(sharedSecret, validityTime, totpLength, alphabet, timestamp, hashAlgorithm)`
+### `generateTOTPs(sharedSecret, validityTime, totpLength, alphabet, timestamp, hashAlgorithm, tlsExporterMaterial)`
 
 Generates TOTP values for the previous, current, and next time slot.
 
@@ -83,6 +83,7 @@ Parameters:
 | `alphabet` | Alphabet used for token characters. | Digits, lowercase letters, and uppercase letters |
 | `timestamp` | Unix timestamp in milliseconds or `Date`. | `Date.now()` |
 | `hashAlgorithm` | HMAC hash algorithm. Must be `sha256`, `sha384`, or `sha512`. | `sha256` |
+| `tlsExporterMaterial` | TLS exporter material (`Uint8Array`) binding the tokens to one TLS session, see below. Empty means no binding. | none |
 
 Returns:
 
@@ -94,6 +95,34 @@ Returns:
   remainingTime:  number;
 }
 ```
+
+### TLS channel binding
+
+A plain token is replayable by anyone who sees it until its slot ends. Over
+TLS v1.3 a token can instead be **bound to the TLS session** it travels in
+(section 6 of the [token format specification](https://github.com/OpenChargingTechnology/Whitepapers/blob/master/TimeBasedOneTimePasswords/totp-token-format.md)):
+both ends derive the same exporter material from their side of the
+connection, the token is HMAC'ed once more with it, and a captured token is
+useless on any other connection.
+
+```js
+import { generateTOTPs, tlsExporterMaterialOf } from "@open-charging-cloud/totp";
+
+// socket: a Node TLSSocket - on the client, or req.socket on an HTTPS server
+const totps = generateTOTPs({
+  sharedSecret:         "secure!Charging!",
+  tlsExporterMaterial:  tlsExporterMaterialOf(socket)
+});
+```
+
+`tlsExporterMaterialOf(socket, length = 32)` exports the keying material
+under the label `EXPORTER-Time-Based-One-Time-Password-v1` (exported as
+`TLS_EXPORTER_LABEL`) with an empty context, and **throws unless the
+connection is TLS v1.3** — a verifier that cannot bind must reject a bound
+token, never verify it as raw. It accepts anything with Node's
+`getProtocol()` and `exportKeyingMaterial()`, so the library itself still
+imports nothing from `node:tls`. Browsers expose no TLS exporter to scripts:
+there, the material — and with it channel binding — is out of reach.
 
 ## Security notes
 

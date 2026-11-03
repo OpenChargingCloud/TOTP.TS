@@ -38,15 +38,32 @@ const DEFAULT_TOTP_LENGTH    = 12;
 const DEFAULT_ALPHABET       = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const DEFAULT_HASH_ALGORITHM = "sha256";
 
+/** The TLS exporter label for TOTP channel binding (RFC 8446 section 7.5). */
+export const TLS_EXPORTER_LABEL  = "EXPORTER-Time-Based-One-Time-Password-v1";
+
+/** The RECOMMENDED length of the TLS exporter material, in bytes. */
+export const TLS_EXPORTER_LENGTH = 32;
+
 export type TOTPHashAlgorithm = "sha256" | "sha384" | "sha512";
 
 export interface GenerateTOTPOptions {
-    sharedSecret:    string;
-    validityTime?:   number | null;
-    totpLength?:     number | null;
-    alphabet?:       string | null;
-    timestamp?:      Date   | number | null;
-    hashAlgorithm?:  TOTPHashAlgorithm | null;
+    sharedSecret:          string;
+    validityTime?:         number | null;
+    totpLength?:           number | null;
+    alphabet?:             string | null;
+    timestamp?:            Date   | number | null;
+    hashAlgorithm?:        TOTPHashAlgorithm | null;
+    tlsExporterMaterial?:  Uint8Array | null;
+}
+
+/**
+ * The part of a TLS socket that channel binding needs - structurally typed,
+ * so that this library stays free of "node:tls". Node's TLSSocket provides
+ * both methods.
+ */
+export interface TLSExporter {
+    getProtocol():           string | null;
+    exportKeyingMaterial(length: number, label: string): Uint8Array;
 }
 
 export interface TOTPResult {
@@ -56,13 +73,21 @@ export interface TOTPResult {
     remainingTime:  number;
 }
 
-function calcTOTPSlot(slotBytes:      Uint8Array,
-                      totpLength:     number,
-                      alphabet:       string,
-                      sharedSecret:   string,
-                      hashAlgorithm:  TOTPHashAlgorithm): string {
+function calcTOTPSlot(slotBytes:            Uint8Array,
+                      totpLength:           number,
+                      alphabet:             string,
+                      sharedSecret:         string,
+                      hashAlgorithm:        TOTPHashAlgorithm,
+                      tlsExporterMaterial:  Uint8Array | null): string {
 
-    const currentHash = hmac(hashFunctions[hashAlgorithm], utf8.encode(sharedSecret), slotBytes);
+    let currentHash = hmac(hashFunctions[hashAlgorithm], utf8.encode(sharedSecret), slotBytes);
+
+    // TLS channel binding: a second HMAC over the first digest, keyed with
+    // the exporter material, with the same hash algorithm. Empty material
+    // means "no binding", never an HMAC with an empty key.
+    if (tlsExporterMaterial !== null && tlsExporterMaterial.length > 0)
+        currentHash = hmac(hashFunctions[hashAlgorithm], tlsExporterMaterial, currentHash);
+
     const offset = currentHash[currentHash.length - 1] & 0x0F;
 
     // Two properties of this loop are frozen parts of the token format — the
@@ -118,14 +143,16 @@ export function generateTOTPs(sharedSecret:           string,
                               totpLength?:            number | null,
                               alphabet?:              string | null,
                               timestamp?:             Date   | number | null,
-                              hashAlgorithm?:         TOTPHashAlgorithm | null): TOTPResult;
+                              hashAlgorithm?:         TOTPHashAlgorithm | null,
+                              tlsExporterMaterial?:   Uint8Array | null): TOTPResult;
 
 export function generateTOTPs(sharedSecretOrOptions:  string | GenerateTOTPOptions,
                               validityTime:           number | null = null,
                               totpLength:             number | null = null,
                               alphabet:               string | null = null,
                               timestamp:              Date   | number | null = null,
-                              hashAlgorithm:          TOTPHashAlgorithm | null = null): TOTPResult {
+                              hashAlgorithm:          TOTPHashAlgorithm | null = null,
+                              tlsExporterMaterial:    Uint8Array | null = null): TOTPResult {
 
     const options                 = typeof sharedSecretOrOptions === "string"
                                         ? {
@@ -134,7 +161,8 @@ export function generateTOTPs(sharedSecretOrOptions:  string | GenerateTOTPOptio
                                               totpLength,
                                               alphabet,
                                               timestamp,
-                                              hashAlgorithm
+                                              hashAlgorithm,
+                                              tlsExporterMaterial
                                           }
                                         : sharedSecretOrOptions;
 
@@ -142,6 +170,7 @@ export function generateTOTPs(sharedSecretOrOptions:  string | GenerateTOTPOptio
     const normalizedTOTPLength    =  options.totpLength   ?? DEFAULT_TOTP_LENGTH;
     const normalizedTimestamp     =  normalizeTimestamp(options.timestamp);
     const normalizedHashAlgorithm =  options.hashAlgorithm ?? DEFAULT_HASH_ALGORITHM;
+    const normalizedTLSMaterial   =  options.tlsExporterMaterial ?? null;
 
     // The type says string; a JavaScript caller says whatever it likes, and the
     // invalid-input vectors expect this function's own error message rather
@@ -184,6 +213,11 @@ export function generateTOTPs(sharedSecretOrOptions:  string | GenerateTOTPOptio
     if (/\s/.test(normalizedAlphabet))
         throw new Error("The given alphabet must not contain any whitespace characters!");
 
+    // A JavaScript caller may hand over a hex string or a plain array; either
+    // would key the second HMAC with something the peer never derived.
+    if (normalizedTLSMaterial !== null && !(normalizedTLSMaterial instanceof Uint8Array))
+        throw new Error("The TLS exporter material must be a Uint8Array!");
+
     const currentUnixTime    = Math.floor(normalizedTimestamp / 1000);
     const currentSlot        = BigInt(Math.floor(currentUnixTime / normalizedValidityTime));
     const remainingTime      = normalizedValidityTime - (currentUnixTime % normalizedValidityTime);
@@ -196,10 +230,36 @@ export function generateTOTPs(sharedSecretOrOptions:  string | GenerateTOTPOptio
     const nextSlotBytes      = slotBytesOf(currentSlot + BigInt(1));
 
     return {
-        previous:  calcTOTPSlot(previousSlotBytes, normalizedTOTPLength, normalizedAlphabet, sharedSecret, normalizedHashAlgorithm),
-        current:   calcTOTPSlot(currentSlotBytes,  normalizedTOTPLength, normalizedAlphabet, sharedSecret, normalizedHashAlgorithm),
-        next:      calcTOTPSlot(nextSlotBytes,     normalizedTOTPLength, normalizedAlphabet, sharedSecret, normalizedHashAlgorithm),
+        previous:  calcTOTPSlot(previousSlotBytes, normalizedTOTPLength, normalizedAlphabet, sharedSecret, normalizedHashAlgorithm, normalizedTLSMaterial),
+        current:   calcTOTPSlot(currentSlotBytes,  normalizedTOTPLength, normalizedAlphabet, sharedSecret, normalizedHashAlgorithm, normalizedTLSMaterial),
+        next:      calcTOTPSlot(nextSlotBytes,     normalizedTOTPLength, normalizedAlphabet, sharedSecret, normalizedHashAlgorithm, normalizedTLSMaterial),
         remainingTime
     };
+
+}
+
+/**
+ * Derives the TLS exporter material for channel binding from a TLS socket,
+ * e.g. Node's TLSSocket: label TLS_EXPORTER_LABEL, empty context, 32 bytes
+ * by default. Both ends of the connection derive the same bytes.
+ *
+ * Throws unless the connection is TLS v1.3 - earlier versions have no
+ * exporter with the properties channel binding relies on, and a verifier
+ * that cannot bind MUST reject a bound token rather than verify it as raw.
+ */
+export function tlsExporterMaterialOf(socket:  TLSExporter,
+                                      length:  number = TLS_EXPORTER_LENGTH): Uint8Array {
+
+    const protocol = socket.getProtocol();
+
+    if (protocol !== "TLSv1.3")
+        throw new Error(`TLS channel binding requires TLS v1.3, but the connection uses ${protocol ?? "no TLS"}!`);
+
+    if (!Number.isInteger(length) || length <= 0)
+        throw new Error("The length of the TLS exporter material must be a positive integer number of bytes!");
+
+    // Omitting the context is the empty context under TLS v1.3 (RFC 8446
+    // section 7.5), which is what the specification asks for.
+    return socket.exportKeyingMaterial(length, TLS_EXPORTER_LABEL);
 
 }

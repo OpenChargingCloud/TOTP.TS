@@ -12,6 +12,23 @@ moved a single token would break deployed verifiers and printed QR codes, so no
 entry below ever will.
 
 
+## [Unreleased]
+
+### Added
+
+- **TLS v1.3 channel binding** (token format specification, section 6): the
+  new optional `tlsExporterMaterial` - in the options object, or as the
+  seventh positional argument - HMACs every token once more with exporter
+  material of the TLS session, so a captured token is useless on any other
+  connection. Empty material means no binding. `tlsExporterMaterialOf(socket)`
+  derives the material from a Node `TLSSocket` (label
+  `EXPORTER-Time-Based-One-Time-Password-v1`, exported as
+  `TLS_EXPORTER_LABEL`; 32 bytes, empty context) and refuses anything but
+  TLS v1.3. The three `tlsChannelBinding` conformance vectors run now
+  instead of being skipped, byte-identical with the C# `TOTPGenerator`.
+  Unbound tokens are unchanged.
+
+
 ## [0.3.1] - 2026-09-05
 
 ### Changed

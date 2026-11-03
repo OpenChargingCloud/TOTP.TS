@@ -38,7 +38,9 @@ import { generateTOTPs, type TOTPHashAlgorithm, type TOTPResult } from "../src/i
 const IMPLEMENTATION_NAME = "totp.ts";
 
 /** The optional capabilities this implementation provides ("requires" lists). */
-const CAPABILITIES: ReadonlySet<string> = new Set([]);
+const CAPABILITIES: ReadonlySet<string> = new Set([
+    "tlsChannelBinding"
+]);
 
 /** Every capability name that exists in the vector format at all: a vector
  *  requiring anything else means the files are newer than this suite - fail,
@@ -102,6 +104,12 @@ const invalidInputVectors  = load<InvalidInputVector>("totp-invalid-inputs.json"
 const httpAuthFileRequires = load<unknown>          ("totp-http-auth-vectors.json").requires ?? [];
 
 
+function bytesOfHex(hex: string | undefined): Uint8Array | null {
+    return hex === undefined
+               ? null
+               : Uint8Array.from(hex.match(/../g) ?? [], byte => parseInt(byte, 16));
+}
+
 function positional(input: VectorInput): TOTPResult {
     return generateTOTPs(
         input.sharedSecret,
@@ -109,18 +117,20 @@ function positional(input: VectorInput): TOTPResult {
         input.totpLength          ?? null,
         input.alphabet            ?? null,
         input.unixTimestampMillis,
-       (input.hashAlgorithm       ?? null) as TOTPHashAlgorithm | null
+       (input.hashAlgorithm       ?? null) as TOTPHashAlgorithm | null,
+        bytesOfHex(input.tlsExporterMaterialHex)
     );
 }
 
 function viaOptions(input: VectorInput): TOTPResult {
     return generateTOTPs({
-        sharedSecret:   input.sharedSecret,
-        validityTime:   input.validityTimeSeconds ?? null,
-        totpLength:     input.totpLength          ?? null,
-        alphabet:       input.alphabet            ?? null,
-        timestamp:      input.unixTimestampMillis,
-        hashAlgorithm: (input.hashAlgorithm       ?? null) as TOTPHashAlgorithm | null
+        sharedSecret:         input.sharedSecret,
+        validityTime:         input.validityTimeSeconds ?? null,
+        totpLength:           input.totpLength          ?? null,
+        alphabet:             input.alphabet            ?? null,
+        timestamp:            input.unixTimestampMillis,
+        hashAlgorithm:       (input.hashAlgorithm       ?? null) as TOTPHashAlgorithm | null,
+        tlsExporterMaterial:  bytesOfHex(input.tlsExporterMaterialHex)
     });
 }
 
