@@ -18,8 +18,10 @@ name: Nightly
 # check — for a small, essentially finished library, it WILL happen.
 on:
   schedule:
-    # 02:43 UTC. Not on the hour: GitHub's scheduler is busiest then and
-    # delays runs by tens of minutes.
+    # 02:43 UTC — not on the hour, where GitHub's scheduler is busiest. In
+    # practice the runs still start six to seven hours late, between 08:20
+    # and 10:00 UTC, so "nightly" is a name, not a time: nothing may depend
+    # on a run having finished by morning.
     - cron: '43 2 * * *'
   workflow_dispatch:
 
@@ -31,10 +33,12 @@ jobs:
   # The gate, but against freshly resolved dependencies: the lock file is
   # removed before install, so every ^-range in package.json resolves to its
   # newest satisfying version. A red here without a corresponding red in CI
-  # means a dependency moved underneath us — typically a new TypeScript or
-  # vitest minor. That turns the night red without anything in this
-  # repository having changed; like Hermod building against Styx master, that
-  # is the honest signal, and a choice, not an accident. Fatal on purpose.
+  # means a dependency moved underneath us — typically a new TypeScript,
+  # @types/node or vitest minor. That turns the night red without anything in
+  # this repository having changed; like Hermod building against Styx master,
+  # that is the honest signal, and a choice, not an accident. Fatal on
+  # purpose. It runs "verify", not just "test": a new @types/node or ESLint
+  # minor breaks the type check or the lint long before it breaks a test.
   fresh-dependencies:
     strategy:
       fail-fast: false
@@ -55,8 +59,8 @@ jobs:
           npm install --no-audit --no-fund
           npm ls --depth=0 || true
 
-      - name: Build and test
-        run: npm test
+      - name: Type check, lint, build and test
+        run: npm run verify
 
   # The pinned suite on whatever Node currently calls itself "latest" — early
   # warning for the next major, months before it becomes an LTS leg in
@@ -78,11 +82,17 @@ jobs:
       - name: Build and test
         run: npm test
 
-  # Informational on purpose: advisories appear on the registry's schedule,
-  # not ours, and every dependency here is a devDependency — the published
-  # package has zero runtime dependencies, so an advisory in vitest does not
-  # make the shipped library vulnerable. Read the summary for a trend; it
-  # must not be able to turn the night red.
+  # Two audits, because the tree has two halves that ship differently.
+  #
+  # The runtime tree — @noble/hashes and whatever it ever depends on — is
+  # installed by every consumer, so an advisory there is a finding against
+  # the published package: fatal, even though it arrives on the registry's
+  # schedule rather than ours.
+  #
+  # The full tree adds the devDependencies, which never reach a consumer: an
+  # advisory in vitest or ESLint does not make the shipped library
+  # vulnerable. Informational — read the summary for a trend; it must not be
+  # able to turn the night red.
   #
   # The pack listing guards the "files" allow-list in package.json: what npm
   # would publish is written into the step summary, so a missing dist/ or an
@@ -102,13 +112,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: npm audit (informational)
+      - name: npm audit of the runtime dependencies
+        run: npm audit --omit=dev
+
+      - name: npm audit of all dependencies (informational)
         continue-on-error: true
         run: |
           {
-            echo '## npm audit (informational)'
+            echo '## npm audit, devDependencies included (informational)'
             echo
-            echo 'All dependencies are devDependencies; the published package has none.'
+            echo 'The runtime dependencies are audited fatally in the step before; what this adds never reaches a consumer.'
             echo
             echo '```'
             npm audit || true

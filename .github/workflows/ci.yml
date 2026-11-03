@@ -33,11 +33,11 @@ jobs:
     #  * Windows, because that is where it is developed — path separators and
     #    line endings in the TypeScript toolchain differ enough to be worth
     #    a leg of their own.
-    #  * Node 20, 22 and 24 are every release line vitest 4 can host (its
-    #    engines range is ^20 || ^22 || >=24). Node 20 is end-of-life since
-    #    April 2026 but stays in the matrix as long as this package's own
-    #    "engines" field still admits it. Node 18 cannot run the test runner
-    #    at all any more — the node18-smoke job below covers that claim.
+    #  * Node 22, 24 and 26 are the release lines vitest 5 can host (its
+    #    engines range is ^22.12.0 || ^24 || >=26), and all three are LTS.
+    #    Node 20 is still admitted by this package's own "engines" field, but
+    #    the test runner no longer installs there cleanly — the engines-floor
+    #    job below covers that claim instead.
     #
     # fail-fast is off on purpose: "red on exactly one leg" is the most
     # valuable signal this matrix produces, so one leg must not cancel the
@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: ['20.x', '22.x', '24.x']
+        node: ['22.x', '24.x', '26.x']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -63,20 +63,15 @@ jobs:
       # and then the vitest suite, so a compile error and a failing test both
       # surface in this one step. Note what the suite exercises: the sources
       # under src/, transformed by vitest — not the compiled dist/. The build
-      # proves dist/ compiles; the smoke job below proves it runs.
+      # proves dist/ compiles; the engines-floor job below proves it runs.
       - name: Build and test
         run: npm test
 
-  # package.json claims "engines": { "node": ">=18" }, but vitest 4 dropped
-  # Node 18, so the matrix above can no longer verify that claim. This job
-  # does: build once on a current Node, then switch to Node 18 and check the
-  # compiled output against a known test vector — the same one the vitest
-  # suite pins. The compiled dist/ has zero runtime dependencies, so nothing
-  # else needs to be installed on the Node 18 side. When this leg goes red,
-  # either restore Node 18 compatibility or raise "engines" — silently
-  # shipping a package that no longer runs where it says it does is the one
-  # outcome this job exists to prevent.
-  node18-smoke:
+  # What "npm run verify" adds to "npm test": the type check over the tests
+  # and config files (the build only covers src/) and ESLint. Neither depends
+  # on the operating system or the Node release, so one leg is enough — and a
+  # job of its own keeps a lint finding from looking like a broken platform.
+  static-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -86,14 +81,61 @@ jobs:
           node-version: '24.x'
           cache: npm
 
-      - name: Install dependencies and build
-        run: npm ci && npm run build
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+  # package.json claims "engines": { "node": ">=20.19.0" } — the floor of
+  # @noble/hashes, the one runtime dependency — but vitest 5 starts at
+  # 22.12.0, so the matrix above can no longer verify that claim. This job
+  # does, the way a consumer would meet it: pack the package on a current
+  # Node, switch to exactly 20.19.0, install the tarball into an empty
+  # project with --engine-strict, and run test/smoke.mjs against what got
+  # installed. That one install checks three things at once: the "files"
+  # allow-list ships everything the code imports, @noble/hashes resolves,
+  # and nothing in the runtime tree refuses Node 20.19.0.
+  #
+  # The install resolves @noble/hashes from its range, not from the lock
+  # file, exactly as a consumer's would — so this job can turn red when a
+  # new @noble/hashes raises its own floor, without a commit here. That is
+  # the finding it exists for: then either pin the dependency or raise
+  # "engines", but never ship a package that no longer installs where it
+  # says it does.
+  engines-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '18.x'
+          node-version: '24.x'
+          cache: npm
 
-      - name: Run compiled output on Node 18
+      # --ignore-scripts keeps prepack, which would run the whole suite
+      # again, out of the pack: the build right before it is all it needs.
+      - name: Build and pack
+        run: |
+          npm ci
+          npm run build
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20.19.0'
+
+      - name: Install the tarball on Node 20.19.0 and run the smoke test
+        working-directory: ${{ runner.temp }}
         run: |
           node --version
-          node test/smoke.mjs
+          mkdir consumer
+          cd consumer
+          npm init -y > /dev/null
+          npm install --engine-strict --no-audit --no-fund ../open-charging-cloud-totp-*.tgz
+          npm ls --all
+          cp "$GITHUB_WORKSPACE/test/smoke.mjs" .
+          node smoke.mjs
