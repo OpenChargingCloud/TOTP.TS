@@ -12,7 +12,7 @@ moved a single token would break deployed verifiers and printed QR codes, so no
 entry below ever will.
 
 
-## [Unreleased]
+## [0.4.0] - 2026-11-03
 
 ### Added
 

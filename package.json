@@ -1,6 +1,6 @@
 {
   "name": "@open-charging-cloud/totp",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Time-based one-time password generator for Open Charging Cloud applications.",
   "repository": {
     "type": "git",
