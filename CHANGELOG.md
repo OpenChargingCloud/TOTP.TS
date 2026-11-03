@@ -119,7 +119,7 @@ entry below ever will.
   vitest 5, `@types/node` 26.
 
 
-## [0.2.0] - 2026
+## [0.2.0] - 2026-06-17
 
 ### Added
 
@@ -134,7 +134,7 @@ entry below ever will.
   previous slot within the first slot after the Unix epoch.
 
 
-## [0.1.0] - 2024
+## [0.1.0] - 2026-06-17
 
 ### Added
 
