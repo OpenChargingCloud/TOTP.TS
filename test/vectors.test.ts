@@ -216,8 +216,8 @@ describe.skipIf(httpAuthFileRequires.some(capability => !CAPABILITIES.has(capabi
 
     it("are loaded", () => {
         expect(httpAuthFile.vectors.length).       toBeGreaterThanOrEqual(5);
-        expect(httpAuthFile.parseVectors.length).  toBeGreaterThanOrEqual(9);
-        expect(httpAuthFile.invalidHeaders.length).toBeGreaterThanOrEqual(17);
+        expect(httpAuthFile.parseVectors.length).  toBeGreaterThanOrEqual(10);
+        expect(httpAuthFile.invalidHeaders.length).toBeGreaterThanOrEqual(16);
     });
 
     // Round trip: the canonical header out, and the same credentials back in.

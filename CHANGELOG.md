@@ -12,6 +12,24 @@ moved a single token would break deployed verifiers and printed QR codes, so no
 entry below ever will.
 
 
+## [0.5.0] - 2026-11-20
+
+### Changed (breaking)
+
+- **`Authorization: TOTP` carries no `tlscb` any more.** The HTTP
+  authentication specification withdrew the in-band binding flag: whether a
+  token is bound to the TLS session is part of the login's configuration, on
+  both sides, so a client cannot talk a binding down (Vanaheimr Hermod
+  `2c8a5d72` did the same). `formatTOTPAuthorization({ login, totp })` writes
+  no `tlscb` - a `tlscb` a 0.4.0 caller still passes is ignored - and
+  `parseTOTPAuthorization()` returns `{ login, totp }`: a `tlscb` in the
+  header, whatever its value, is ignored like any unknown parameter instead
+  of being parsed or rejected. Generate the token with or without
+  `tlsExporterMaterial` as the login is configured. The 31
+  `httpAuthentication` conformance vectors run as before. Token values are
+  unchanged.
+
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

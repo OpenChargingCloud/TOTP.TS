@@ -19,7 +19,13 @@
 // specification (totp-http-authentication.md, section 5): RFC 9110
 // auth-params,
 //
-//     TOTP login="<b64>", totp="<b64>"[, tlscb=true|false]
+//     TOTP login="<b64>", totp="<b64>"
+//
+// Whether the token is bound to the TLS session (channel binding) is not
+// part of the header: the login's configuration says so, on both sides -
+// generate the token with or without tlsExporterMaterial accordingly.
+// tlscb, the binding flag of earlier drafts, is ignored like any other
+// unknown parameter.
 //
 // Where the specification leaves a detail open, this follows the C#
 // HTTPTOTPAuthentication in Vanaheimr Hermod, so that both parsers accept
@@ -31,8 +37,6 @@ export interface TOTPCredentials {
     login:  string;
     /** The time-based one-time password. */
     totp:   string;
-    /** Whether the token is bound to the TLS session (channel binding). */
-    tlscb:  boolean;
 }
 
 const BASE64_ALPHABET  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -223,13 +227,12 @@ function parseAuthParams(text: string): Map<string, string> {
 
 /**
  * Builds the canonical value of an "Authorization: TOTP" header: login and
- * token as quoted Base64 strings of their UTF-8 encoding, and tlscb only
- * when it is false - true is the default.
+ * token as quoted Base64 strings of their UTF-8 encoding. A bound token
+ * travels exactly like a raw one.
  */
-export function formatTOTPAuthorization(credentials: { login: string; totp: string; tlscb?: boolean | null }): string {
+export function formatTOTPAuthorization(credentials: { login: string; totp: string }): string {
 
     const login = credentials.login.trim();
-    const tlscb = credentials.tlscb ?? true;
 
     if (login.length === 0)
         throw new Error("The given login must not be null or empty!");
@@ -237,27 +240,18 @@ export function formatTOTPAuthorization(credentials: { login: string; totp: stri
     if (credentials.totp.length === 0)
         throw new Error("The given TOTP must not be null or empty!");
 
-    // The type says boolean; a JavaScript caller's "false" would otherwise
-    // be truthy and claim a channel binding the token does not have.
-    if (typeof tlscb !== "boolean")
-        throw new Error("The given tlscb must be a boolean!");
-
-    const header = `TOTP login="${toBase64(utf8Encoder.encode(login))}", totp="${toBase64(utf8Encoder.encode(credentials.totp))}"`;
-
-    return tlscb
-               ? header
-               : `${header}, tlscb=false`;
+    return `TOTP login="${toBase64(utf8Encoder.encode(login))}", totp="${toBase64(utf8Encoder.encode(credentials.totp))}"`;
 
 }
 
 /**
- * Parses the value of an "Authorization: TOTP" header. Scheme, parameter
- * names and the tlscb value are case-insensitive, parameters are unordered,
- * unknown parameters are ignored, and an absent tlscb means true.
+ * Parses the value of an "Authorization: TOTP" header. Scheme and parameter
+ * names are case-insensitive, parameters are unordered, and unknown
+ * parameters - tlscb of earlier drafts among them - are ignored.
  *
  * Throws on everything the specification calls malformed: another scheme,
- * a missing or empty login or totp, invalid Base64 or UTF-8, duplicate
- * parameters, and a tlscb that is neither true nor false.
+ * a missing or empty login or totp, invalid Base64 or UTF-8, and duplicate
+ * parameters.
  */
 export function parseTOTPAuthorization(header: string): TOTPCredentials {
 
@@ -271,7 +265,6 @@ export function parseTOTPAuthorization(header: string): TOTPCredentials {
 
     const loginBase64 = parameters.get("login");
     const totpBase64  = parameters.get("totp");
-    const tlscbText   = parameters.get("tlscb");
 
     if (loginBase64 === undefined)
         throw new Error("The TOTP authorization header has no login!");
@@ -288,21 +281,6 @@ export function parseTOTPAuthorization(header: string): TOTPCredentials {
     if (totp === null)
         throw new Error("The totp of the TOTP authorization header is not the Base64 of a non-empty UTF-8 text!");
 
-    let tlscb = true;
-
-    if (tlscbText !== undefined) {
-
-        if      (tlscbText.toLowerCase() === "true")
-            tlscb = true;
-
-        else if (tlscbText.toLowerCase() === "false")
-            tlscb = false;
-
-        else
-            throw new Error("The tlscb of the TOTP authorization header must be true or false!");
-
-    }
-
-    return { login, totp, tlscb };
+    return { login, totp };
 
 }

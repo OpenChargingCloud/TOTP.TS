@@ -37,13 +37,13 @@ const checks = [
     },
     {
         name:      "Authorization: TOTP header",
-        actual:    { header: formatTOTPAuthorization({ login: "chargingstation-0001", totp: "CN63y502maVh", tlscb: false }) },
-        expected:  { header: "TOTP login=\"Y2hhcmdpbmdzdGF0aW9uLTAwMDE=\", totp=\"Q042M3k1MDJtYVZo\", tlscb=false" }
+        actual:    { header: formatTOTPAuthorization({ login: "chargingstation-0001", totp: "CN63y502maVh" }) },
+        expected:  { header: "TOTP login=\"Y2hhcmdpbmdzdGF0aW9uLTAwMDE=\", totp=\"Q042M3k1MDJtYVZo\"" }
     },
     {
         name:      "parsed Authorization: TOTP header",
         actual:    parseTOTPAuthorization("TOTP login=\"Y2hhcmdpbmdzdGF0aW9uLTAwMDE=\", totp=\"Z0F6eFBmWXRtUmdk\""),
-        expected:  { login: "chargingstation-0001", totp: "gAzxPfYtmRgd", tlscb: true }
+        expected:  { login: "chargingstation-0001", totp: "gAzxPfYtmRgd" }
     }
 ];
 

@@ -8,14 +8,20 @@ import { formatTOTPAuthorization, generateTOTPs, parseTOTPAuthorization } from "
 
 describe("formatTOTPAuthorization", () => {
 
-  it("defaults to a TLS-bound token and therefore omits tlscb", () => {
+  it("writes a bound token exactly like a raw one: the login's configuration says which it is", () => {
     expect(formatTOTPAuthorization({ login: "chargingstation-0001", totp: "gAzxPfYtmRgd" }))
       .toBe("TOTP login=\"Y2hhcmdpbmdzdGF0aW9uLTAwMDE=\", totp=\"Z0F6eFBmWXRtUmdk\"");
   });
 
+  it("writes no tlscb, whatever a caller of 0.4.0 still passes", () => {
+    for (const tlscb of [true, false])
+      expect(formatTOTPAuthorization({ login: "station-1", totp: "CN63y502maVh", tlscb } as { login: string; totp: string }))
+        .toBe(formatTOTPAuthorization({ login: "station-1", totp: "CN63y502maVh" }));
+  });
+
   it("trims the login, as Hermod does", () => {
-    expect(formatTOTPAuthorization({ login: "  chargingstation-0001 ", totp: "CN63y502maVh", tlscb: false }))
-      .toBe(formatTOTPAuthorization({ login: "chargingstation-0001",    totp: "CN63y502maVh", tlscb: false }));
+    expect(formatTOTPAuthorization({ login: "  chargingstation-0001 ", totp: "CN63y502maVh" }))
+      .toBe(formatTOTPAuthorization({ login: "chargingstation-0001",    totp: "CN63y502maVh" }));
   });
 
   it("refuses an empty login or token", () => {
@@ -23,25 +29,20 @@ describe("formatTOTPAuthorization", () => {
     expect(() => formatTOTPAuthorization({ login: "station-1", totp: ""             })).toThrow("The given TOTP must not be null or empty!");
   });
 
-  it("refuses a tlscb that is not a boolean, rather than reading \"false\" as true", () => {
-    expect(() => formatTOTPAuthorization({ login: "station-1", totp: "CN63y502maVh", tlscb: "false" as unknown as boolean }))
-      .toThrow("The given tlscb must be a boolean!");
-  });
-
   it("round-trips logins and tokens beyond ASCII, astral characters included", () => {
     for (const credentials of [
-      { login: "EVSE:DE*GEF*E1234*1",  totp: "CN63y502maVh", tlscb: false },
-      { login: "Ladesäule-Süd-01",     totp: "äöü€",         tlscb: true  },
-      { login: "station-🔌",           totp: "⚡⚡⚡⚡",       tlscb: false },
-      { login: "a",                    totp: "ab",           tlscb: true  },
-      { login: "abc",                  totp: "abcd",         tlscb: false }
+      { login: "EVSE:DE*GEF*E1234*1",  totp: "CN63y502maVh" },
+      { login: "Ladesäule-Süd-01",     totp: "äöü€"         },
+      { login: "station-🔌",           totp: "⚡⚡⚡⚡"       },
+      { login: "a",                    totp: "ab"           },
+      { login: "abc",                  totp: "abcd"         }
     ])
       expect(parseTOTPAuthorization(formatTOTPAuthorization(credentials))).toEqual(credentials);
   });
 
   it("carries a generated token", () => {
     const totp = generateTOTPs("secure!Charging!", null, null, null, 1718611200000).current;
-    expect(parseTOTPAuthorization(formatTOTPAuthorization({ login: "station-1", totp, tlscb: false })).totp).toBe(totp);
+    expect(parseTOTPAuthorization(formatTOTPAuthorization({ login: "station-1", totp })).totp).toBe(totp);
   });
 
 });
@@ -51,8 +52,8 @@ describe("parseTOTPAuthorization", () => {
   const totp = "totp=\"Q042M3k1MDJtYVZo\"";
 
   it("matches parameter names case-insensitively, duplicates included", () => {
-    expect(parseTOTPAuthorization(`TOTP LOGIN="c3RhdGlvbi0x", ToTp="Q042M3k1MDJtYVZo", TLSCB=false`))
-      .toEqual({ login: "station-1", totp: "CN63y502maVh", tlscb: false });
+    expect(parseTOTPAuthorization(`TOTP LOGIN="c3RhdGlvbi0x", ToTp="Q042M3k1MDJtYVZo"`))
+      .toEqual({ login: "station-1", totp: "CN63y502maVh" });
     expect(() => parseTOTPAuthorization(`TOTP login="c3RhdGlvbi0x", Login="c3RhdGlvbi0x", ${totp}`))
       .toThrow("more than once");
   });
